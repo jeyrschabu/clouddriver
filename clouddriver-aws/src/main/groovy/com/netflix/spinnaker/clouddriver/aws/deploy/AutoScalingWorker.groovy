@@ -22,11 +22,21 @@ import com.amazonaws.services.autoscaling.model.AutoScalingGroup
 import com.amazonaws.services.autoscaling.model.CreateAutoScalingGroupRequest
 import com.amazonaws.services.autoscaling.model.DescribeAutoScalingGroupsRequest
 import com.amazonaws.services.autoscaling.model.DescribeAutoScalingGroupsResult
+import com.amazonaws.services.autoscaling.model.Ebs
 import com.amazonaws.services.autoscaling.model.EnableMetricsCollectionRequest
+import com.amazonaws.services.autoscaling.model.LaunchTemplateSpecification
 import com.amazonaws.services.autoscaling.model.SuspendProcessesRequest
 import com.amazonaws.services.autoscaling.model.Tag
 import com.amazonaws.services.autoscaling.model.UpdateAutoScalingGroupRequest
+import com.amazonaws.services.ec2.model.CreateLaunchTemplateRequest
 import com.amazonaws.services.ec2.model.DescribeSubnetsResult
+import com.amazonaws.services.ec2.model.LaunchTemplate
+import com.amazonaws.services.ec2.model.LaunchTemplateBlockDeviceMappingRequest
+import com.amazonaws.services.ec2.model.LaunchTemplateEbsBlockDeviceRequest
+import com.amazonaws.services.ec2.model.LaunchTemplateIamInstanceProfileSpecificationRequest
+import com.amazonaws.services.ec2.model.LaunchTemplateInstanceMetadataOptionsRequest
+import com.amazonaws.services.ec2.model.LaunchTemplatesMonitoringRequest
+import com.amazonaws.services.ec2.model.RequestLaunchTemplateData
 import com.amazonaws.services.ec2.model.Subnet
 import com.netflix.spinnaker.clouddriver.aws.model.AmazonAsgLifecycleHook
 import com.netflix.spinnaker.clouddriver.aws.model.AmazonBlockDevice
@@ -40,6 +50,7 @@ import com.netflix.spinnaker.clouddriver.data.task.TaskRepository
 import com.netflix.spinnaker.clouddriver.model.ServerGroup
 import com.netflix.spinnaker.kork.core.RetrySupport
 import groovy.util.logging.Slf4j
+import org.joda.time.LocalDateTime
 
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -101,6 +112,7 @@ class AutoScalingWorker {
   private int minInstances
   private int maxInstances
   private int desiredInstances
+  private boolean useLaunchTemplates
 
   private RegionScopedProviderFactory.RegionScopedProvider regionScopedProvider
 
@@ -137,34 +149,116 @@ class AutoScalingWorker {
       asgName = awsServerGroupNameResolver.resolveNextServerGroupName(application, stack, freeFormDetails, ignoreSequence)
     }
 
-    def settings = new LaunchConfigurationBuilder.LaunchConfigurationSettings(
-      account: credentials.name,
-      environment: credentials.environment,
-      accountType: credentials.accountType,
-      region: region,
-      baseName: asgName,
-      suffix: null,
-      ami: ami,
-      iamRole: iamRole,
-      classicLinkVpcId: classicLinkVpcId,
-      classicLinkVpcSecurityGroups: classicLinkVpcSecurityGroups,
-      instanceType: instanceType,
-      keyPair: keyPair,
-      base64UserData: base64UserData?.trim(),
-      associatePublicIpAddress: associatePublicIpAddress,
-      kernelId: kernelId,
-      ramdiskId: ramdiskId,
-      ebsOptimized: ebsOptimized,
-      spotPrice: spotPrice,
-      instanceMonitoring: instanceMonitoring,
-      blockDevices: blockDevices,
-      securityGroups: securityGroups)
+    LaunchTemplateSpecification launchTemplateSpecification = null
+    String launchConfigName = null
+    if (!useLaunchTemplates) {
+      def settings = new LaunchConfigurationBuilder.LaunchConfigurationSettings(
+        account: credentials.name,
+        environment: credentials.environment,
+        accountType: credentials.accountType,
+        region: region,
+        baseName: asgName,
+        suffix: null,
+        ami: ami,
+        iamRole: iamRole,
+        classicLinkVpcId: classicLinkVpcId,
+        classicLinkVpcSecurityGroups: classicLinkVpcSecurityGroups,
+        instanceType: instanceType,
+        keyPair: keyPair,
+        base64UserData: base64UserData?.trim(),
+        associatePublicIpAddress: associatePublicIpAddress,
+        kernelId: kernelId,
+        ramdiskId: ramdiskId,
+        ebsOptimized: ebsOptimized,
+        spotPrice: spotPrice,
+        instanceMonitoring: instanceMonitoring,
+        blockDevices: blockDevices,
+        securityGroups: securityGroups
+      )
 
-    String launchConfigName = regionScopedProvider.getLaunchConfigurationBuilder().buildLaunchConfiguration(application, subnetType, settings, legacyUdf)
+      launchConfigName = regionScopedProvider.getLaunchConfigurationBuilder().buildLaunchConfiguration(application, subnetType, settings, legacyUdf)
+    } else {
+      // TODO: match launch configs
+      // TODO: move template creation to its own thing
+      final LaunchTemplate launchTemplate = createLaunchTemplate(asgName)
+      launchTemplateSpecification = new LaunchTemplateSpecification(
+        launchTemplateId: launchTemplate,
+        version: launchTemplate.latestVersionNumber
+      )
+    }
 
     task.updateStatus AWS_PHASE, "Deploying ASG: $asgName"
+    createAutoScalingGroup(asgName, launchConfigName, launchTemplateSpecification)
+  }
 
-    createAutoScalingGroup(asgName, launchConfigName)
+  private LaunchTemplate createLaunchTemplate(String asgName) {
+    final RequestLaunchTemplateData data = new RequestLaunchTemplateData()
+      .withImageId(ami)
+      .withKernelId(kernelId)
+      .withInstanceType(instanceType)
+      .withRamDiskId(ramdiskId)
+      .withEbsOptimized(ebsOptimized)
+      .withKeyName(keyPair)
+      .withUserData(base64UserData?.trim())
+      .withIamInstanceProfile(new LaunchTemplateIamInstanceProfileSpecificationRequest(name: iamRole))
+      .withMonitoring(new LaunchTemplatesMonitoringRequest(enabled: instanceMonitoring))
+      .withSecurityGroupIds(securityGroups)
+
+    def mappings = []
+    for (blockDevice in blockDevices) {
+      def mapping = new LaunchTemplateBlockDeviceMappingRequest(deviceName: blockDevice.deviceName)
+      if (blockDevice.virtualName) {
+        mapping.withVirtualName(blockDevice.virtualName)
+      } else {
+        def ebs = new Ebs()
+        blockDevice.with {
+          ebs.withVolumeSize(size)
+          if (deleteOnTermination != null) {
+            ebs.withDeleteOnTermination(deleteOnTermination)
+          }
+          if (volumeType) {
+            ebs.withVolumeType(volumeType)
+          }
+          if (iops) {
+            ebs.withIops(iops)
+          }
+          if (snapshotId) {
+            ebs.withSnapshotId(snapshotId)
+          }
+          if (encrypted) {
+            ebs.withEncrypted(encrypted)
+          }
+        }
+
+        def blockDeviceRequest = new LaunchTemplateEbsBlockDeviceRequest()
+          .withVolumeType(blockDevice.volumeType)
+        mapping.withEbs(blockDeviceRequest)
+      }
+      mappings << mapping
+    }
+
+    if (mappings) {
+      data.withBlockDeviceMappings(mappings)
+    }
+
+    boolean useIMDv2 = true // TODO: from request
+    if (useIMDv2) {
+      data.withMetadataOptions(new LaunchTemplateInstanceMetadataOptionsRequest(httpTokens: "required"))
+    }
+
+    final CreateLaunchTemplateRequest launchTemplateRequest = new CreateLaunchTemplateRequest()
+      .withLaunchTemplateName(createName(asgName))
+      .withLaunchTemplateData(data)
+
+    return regionScopedProvider.amazonEC2.createLaunchTemplate(launchTemplateRequest).launchTemplate
+  }
+
+  private String createName(String baseName, String suffix = new LocalDateTime().toString("MMddYYYYHHmmss")) {
+    StringBuilder name = new StringBuilder(baseName)
+    if (suffix) {
+      name.append('-').append(suffix)
+    }
+    name.toString()
   }
 
   /**
@@ -217,10 +311,16 @@ class AutoScalingWorker {
    * @param launchConfigurationName
    * @return
    */
-  String createAutoScalingGroup(String asgName, String launchConfigurationName) {
-    CreateAutoScalingGroupRequest request = new CreateAutoScalingGroupRequest()
+  String createAutoScalingGroup(String asgName, String launchConfigurationName, LaunchTemplateSpecification launchTemplateSpecification = null) {
+    final CreateAutoScalingGroupRequest request = new CreateAutoScalingGroupRequest()
+    if (launchTemplateSpecification != null) {
+      request.withLaunchTemplate(launchTemplateSpecification)
+    } else {
+      request.withLaunchConfigurationName(launchConfigurationName)
+    }
+
+    request
       .withAutoScalingGroupName(asgName)
-      .withLaunchConfigurationName(launchConfigurationName)
       .withMinSize(0)
       .withMaxSize(0)
       .withDesiredCapacity(0)

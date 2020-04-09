@@ -51,6 +51,12 @@ class BasicAmazonDeployDescription extends AbstractAmazonCredentialsDescription 
   String base64UserData
   Boolean legacyUdf
 
+  /**
+   * Flags if a deployment is to use a launch template instead of a launch configuration
+   * Defaults to true
+   */
+  Boolean useLaunchTemplates = true
+
   Collection<OperationEvent> events = []
 
 

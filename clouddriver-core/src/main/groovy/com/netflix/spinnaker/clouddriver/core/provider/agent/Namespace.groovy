@@ -28,6 +28,7 @@ enum Namespace {
   SERVER_GROUPS(["application", "cluster", "account", "region", "serverGroup", "stack", "detail", "sequence"]),
   INSTANCES(["account", "region", "instanceId"]),
   LAUNCH_CONFIGS,
+  LAUNCH_TEMPLATES,
   LISTENERS,
   LOAD_BALANCERS(["account", "region", "loadBalancer", "vpcId", "application", "stack", "detail", "loadBalancerType"]),
   TARGET_GROUPS,

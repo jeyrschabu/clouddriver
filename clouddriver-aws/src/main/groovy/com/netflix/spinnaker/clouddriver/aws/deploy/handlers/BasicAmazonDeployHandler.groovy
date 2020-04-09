@@ -299,7 +299,8 @@ class BasicAmazonDeployHandler implements DeployHandler<BasicAmazonDeployDescrip
         base64UserData: description.base64UserData,
         legacyUdf: description.legacyUdf,
         tags: applyAppStackDetailTags(deployDefaults, description).tags,
-        lifecycleHooks: getLifecycleHooks(account, description)
+        lifecycleHooks: getLifecycleHooks(account, description),
+        useLaunchTemplates: description.useLaunchTemplates
       )
 
       def asgName = autoScalingWorker.deploy()

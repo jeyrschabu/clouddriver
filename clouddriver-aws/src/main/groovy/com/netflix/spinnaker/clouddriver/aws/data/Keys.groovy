@@ -107,6 +107,10 @@ class Keys implements KeyParser {
         def names = Names.parseName(parts[4])
         result << [account: parts[2], region: parts[3], launchConfig: parts[4], application: names.app?.toLowerCase(), stack: names.stack]
         break
+      case Namespace.LAUNCH_TEMPLATES.ns:
+        def names = Names.parseName(parts[4])
+        result << [account: parts[2], region: parts[3], launchTemplate: parts[4], application: names.app?.toLowerCase(), stack: names.stack]
+        break
       case Namespace.LOAD_BALANCERS.ns:
         def names = Names.parseName(parts[4])
         String vpcId = parts.length > 5 ? (parts[5] ?: null) : null
@@ -162,6 +166,10 @@ class Keys implements KeyParser {
 
   static String getLaunchConfigKey(String launchConfigName, String account, String region) {
     "${ID}:${Namespace.LAUNCH_CONFIGS}:${account}:${region}:${launchConfigName}"
+  }
+
+  static String getLaunchTemplateKey(String launchTemplate, String account, String region) {
+    "${ID}:${Namespace.LAUNCH_TEMPLATES}:${account}:${region}:${launchTemplate}"
   }
 
   static String getLoadBalancerKey(String loadBalancerName, String account, String region, String vpcId, String loadBalancerType) {

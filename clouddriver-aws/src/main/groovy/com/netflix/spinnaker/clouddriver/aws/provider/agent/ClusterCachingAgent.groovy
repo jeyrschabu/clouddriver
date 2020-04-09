@@ -74,6 +74,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
     INFORMATIVE.forType(LOAD_BALANCERS.ns),
     INFORMATIVE.forType(TARGET_GROUPS.ns),
     INFORMATIVE.forType(LAUNCH_CONFIGS.ns),
+    INFORMATIVE.forType(LAUNCH_TEMPLATES.ns),
     INFORMATIVE.forType(INSTANCES.ns)
   ] as Set)
 
@@ -442,6 +443,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
     log.debug("Caching ${cacheResults[LOAD_BALANCERS.ns]?.size()} load balancers in ${agentType}")
     log.debug("Caching ${cacheResults[TARGET_GROUPS.ns]?.size()} target groups in ${agentType}")
     log.debug("Caching ${cacheResults[LAUNCH_CONFIGS.ns]?.size()} launch configs in ${agentType}")
+    log.debug("Caching ${cacheResults[LAUNCH_TEMPLATES.ns]?.size()} launch templates in ${agentType}")
     log.debug("Caching ${cacheResults[INSTANCES.ns]?.size()} instances in ${agentType}")
     if (evictableOnDemandCacheDatas) {
       log.info("Evicting onDemand cache keys (${evictableOnDemandCacheDatas.collect { "${it.id}/${start - it.attributes.cacheTime}ms" }.join(", ")})")
@@ -495,6 +497,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
     Map<String, CacheData> loadBalancers = cache()
     Map<String, CacheData> targetGroups = cache()
     Map<String, CacheData> launchConfigs = cache()
+    Map<String, CacheData> launchTemplates = cache()
     Map<String, CacheData> instances = cache()
 
     for (AutoScalingGroup asg : asgs) {
@@ -510,6 +513,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
         cache(cacheResults["loadBalancers"], loadBalancers)
         cache(cacheResults["targetGroups"], targetGroups)
         cache(cacheResults["launchConfigs"], launchConfigs)
+        cache(cacheResults["launchTemplates"], launchTemplates)
         cache(cacheResults["instances"], instances)
       } else {
         try {
@@ -521,6 +525,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
           cacheInstances(data, instances)
           cacheLoadBalancers(data, loadBalancers)
           cacheTargetGroups(data, targetGroups)
+          cacheLaunchTemplates(data, launchTemplates)
         } catch (Exception ex) {
           log.warn("Failed to cache ${asg.autoScalingGroupName} in ${account.name}/${region}", ex)
         }
@@ -534,6 +539,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
       (LOAD_BALANCERS.ns): loadBalancers.values(),
       (TARGET_GROUPS.ns): targetGroups.values(),
       (LAUNCH_CONFIGS.ns): launchConfigs.values(),
+      (LAUNCH_TEMPLATES.ns): launchTemplates.values(),
       (INSTANCES.ns)     : instances.values(),
       (ON_DEMAND.ns)     : onDemandCacheDataByAsg.values()
     ], [
@@ -612,13 +618,24 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
       relationships[CLUSTERS.ns].add(data.cluster)
       relationships[LOAD_BALANCERS.ns].addAll(data.loadBalancerNames)
       relationships[TARGET_GROUPS.ns].addAll(data.targetGroupKeys)
-      relationships[LAUNCH_CONFIGS.ns].add(data.launchConfig)
+      if (data.launchTemplate) {
+        relationships[LAUNCH_TEMPLATES.ns].add(data.launchTemplate)
+      } else {
+        relationships[LAUNCH_CONFIGS.ns].add(data.launchConfig)
+      }
+
       relationships[INSTANCES.ns].addAll(data.instanceIds)
     }
   }
 
   private void cacheLaunchConfig(AsgData data, Map<String, CacheData> launchConfigs) {
     launchConfigs[data.launchConfig].with {
+      relationships[SERVER_GROUPS.ns].add(data.serverGroup)
+    }
+  }
+
+  private void cacheLaunchTemplates(AsgData data, Map<String, CacheData> launchTemplates) {
+    launchTemplates[data.launchTemplate].with {
       relationships[SERVER_GROUPS.ns].add(data.serverGroup)
     }
   }
@@ -703,6 +720,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
     final String serverGroup
     final String vpcId
     final String launchConfig
+    final String launchTemplate
     final Set<String> loadBalancerNames
     final Set<String> targetGroupKeys
     final Set<String> targetGroupNames
@@ -734,7 +752,12 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
         vpcId = vpcIds.first()
       }
       this.vpcId = vpcId
-      launchConfig = Keys.getLaunchConfigKey(asg.launchConfigurationName, account, region)
+      if (asg.launchTemplate) {
+        launchTemplate = Keys.getLaunchTemplateKey(asg.launchTemplate.launchTemplateName, account, region)
+      } else {
+        launchConfig = Keys.getLaunchConfigKey(asg.launchConfigurationName, account, region)
+      }
+
       loadBalancerNames = (asg.loadBalancerNames.collect {
         Keys.getLoadBalancerKey(it, account, region, vpcId, null)
       } as Set).asImmutable()
