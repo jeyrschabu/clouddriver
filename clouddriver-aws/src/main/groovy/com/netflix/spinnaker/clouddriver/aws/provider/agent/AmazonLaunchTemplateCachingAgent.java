@@ -105,10 +105,7 @@ public class AmazonLaunchTemplateCachingAgent implements CachingAgent, AccountAw
                           .map(i -> i.getLaunchTemplateData().getImageId())
                           .collect(Collectors.toList());
 
-                  attributes.put(
-                      "versions",
-                      Collections.singletonMap(
-                          template.getLaunchTemplateName(), launchTemplateVersions));
+                  attributes.put("versions", launchTemplateVersions);
                   attributes.put("application", Keys.parse(key).get("application"));
 
                   final String imageKey =

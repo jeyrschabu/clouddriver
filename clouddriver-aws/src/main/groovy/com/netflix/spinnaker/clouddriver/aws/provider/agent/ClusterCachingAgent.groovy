@@ -525,7 +525,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
           cacheInstances(data, instances)
           cacheLoadBalancers(data, loadBalancers)
           cacheTargetGroups(data, targetGroups)
-          cacheLaunchTemplates(data, launchTemplates)
+          cacheLaunchTemplate(data, launchTemplates)
         } catch (Exception ex) {
           log.warn("Failed to cache ${asg.autoScalingGroupName} in ${account.name}/${region}", ex)
         }
@@ -634,7 +634,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
     }
   }
 
-  private void cacheLaunchTemplates(AsgData data, Map<String, CacheData> launchTemplates) {
+  private void cacheLaunchTemplate(AsgData data, Map<String, CacheData> launchTemplates) {
     launchTemplates[data.launchTemplate].with {
       relationships[SERVER_GROUPS.ns].add(data.serverGroup)
     }
