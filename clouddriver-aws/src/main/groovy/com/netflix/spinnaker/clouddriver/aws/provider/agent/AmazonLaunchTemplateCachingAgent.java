@@ -45,12 +45,10 @@ import com.netflix.spinnaker.clouddriver.aws.security.NetflixAmazonCredentials;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class AmazonLaunchTemplateCachingAgent implements CachingAgent, AccountAware {
   private final AmazonClientProvider amazonClientProvider;
@@ -83,40 +81,29 @@ public class AmazonLaunchTemplateCachingAgent implements CachingAgent, AccountAw
   @Override
   public CacheResult loadData(ProviderCache providerCache) {
     final AmazonEC2 ec2 = amazonClientProvider.getAmazonEC2(account, region);
-    final List<LaunchTemplate> launchTemplates = getLaunchTemplates(ec2);
-    // TODO: (jeyrs) Review versions api when it gets updated
-    final List<CacheData> templateData =
-        launchTemplates.stream()
-            .map(
-                template -> {
-                  final Map<String, Object> attributes =
-                      objectMapper.convertValue(template, ATTRIBUTES);
-                  final Map<String, Collection<String>> relationships = new HashMap<>();
-                  final String key =
-                      Keys.getLaunchTemplateKey(
-                          template.getLaunchTemplateName(), account.getName(), region);
+    final List<LaunchTemplateVersion> launchTemplateVersions = getLaunchTemplateVersions(ec2);
+    final List<CacheData> cachedData = new ArrayList<>();
 
-                  final List<LaunchTemplateVersion> launchTemplateVersions =
-                      getLaunchTemplateVersions(ec2, template);
-                  final List<String> imageIds =
-                      launchTemplateVersions.stream()
-                          .filter(
-                              t -> t.getVersionNumber().equals(template.getLatestVersionNumber()))
-                          .map(i -> i.getLaunchTemplateData().getImageId())
-                          .collect(Collectors.toList());
+    for (LaunchTemplateVersion launchTemplate : launchTemplateVersions) {
+      String version = String.valueOf(launchTemplate.getVersionNumber());
+      String key =
+          Keys.getLaunchTemplateKey(
+              launchTemplate.getLaunchTemplateName(), version, account.getName(), region);
 
-                  attributes.put("versions", launchTemplateVersions);
-                  attributes.put("application", Keys.parse(key).get("application"));
+      Map<String, Object> attributes = objectMapper.convertValue(launchTemplate, ATTRIBUTES);
+      attributes.put("application", Keys.parse(key).get("application"));
 
-                  final String imageKey =
-                      Keys.getImageKey(imageIds.get(0), account.getName(), region);
-                  relationships.put(IMAGES.ns, Collections.singletonList(imageKey));
+      String imageKey =
+          Keys.getImageKey(
+              launchTemplate.getLaunchTemplateData().getImageId(), account.getName(), region);
 
-                  return new DefaultCacheData(key, attributes, relationships);
-                })
-            .collect(Collectors.toList());
+      Map<String, Collection<String>> relationships =
+          Collections.singletonMap(IMAGES.ns, Collections.singletonList(imageKey));
 
-    return new DefaultCacheResult(Collections.singletonMap(LAUNCH_TEMPLATES.ns, templateData));
+      cachedData.add(new DefaultCacheData(key, attributes, relationships));
+    }
+
+    return new DefaultCacheResult(Collections.singletonMap(LAUNCH_TEMPLATES.ns, cachedData));
   }
 
   private List<LaunchTemplate> getLaunchTemplates(AmazonEC2 ec2) {
@@ -133,6 +120,17 @@ public class AmazonLaunchTemplateCachingAgent implements CachingAgent, AccountAw
     }
 
     return launchTemplates;
+  }
+
+  /** @return all launch template versions NOTE: subject to change */
+  private List<LaunchTemplateVersion> getLaunchTemplateVersions(AmazonEC2 ec2) {
+    final List<LaunchTemplate> launchTemplates = getLaunchTemplates(ec2);
+    final List<LaunchTemplateVersion> launchTemplateVersions = new ArrayList<>();
+    for (LaunchTemplate launchTemplate : launchTemplates) {
+      launchTemplateVersions.addAll(getLaunchTemplateVersions(ec2, launchTemplate));
+    }
+
+    return launchTemplateVersions;
   }
 
   private List<LaunchTemplateVersion> getLaunchTemplateVersions(

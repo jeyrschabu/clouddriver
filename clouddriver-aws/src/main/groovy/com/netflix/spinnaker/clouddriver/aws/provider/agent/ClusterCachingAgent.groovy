@@ -618,8 +618,8 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
       relationships[CLUSTERS.ns].add(data.cluster)
       relationships[LOAD_BALANCERS.ns].addAll(data.loadBalancerNames)
       relationships[TARGET_GROUPS.ns].addAll(data.targetGroupKeys)
-      if (data.launchTemplate) {
-        relationships[LAUNCH_TEMPLATES.ns].add(data.launchTemplate)
+      if (data.launchTemplateData) {
+        relationships[LAUNCH_TEMPLATES.ns].add(data.launchTemplateData)
       } else {
         relationships[LAUNCH_CONFIGS.ns].add(data.launchConfig)
       }
@@ -635,7 +635,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
   }
 
   private void cacheLaunchTemplate(AsgData data, Map<String, CacheData> launchTemplates) {
-    launchTemplates[data.launchTemplate].with {
+    launchTemplates[data.launchTemplateData].with {
       relationships[SERVER_GROUPS.ns].add(data.serverGroup)
     }
   }
@@ -720,7 +720,7 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
     final String serverGroup
     final String vpcId
     final String launchConfig
-    final String launchTemplate
+    final String launchTemplateData
     final Set<String> loadBalancerNames
     final Set<String> targetGroupKeys
     final Set<String> targetGroupNames
@@ -752,8 +752,9 @@ class ClusterCachingAgent implements CachingAgent, OnDemandAgent, AccountAware, 
         vpcId = vpcIds.first()
       }
       this.vpcId = vpcId
-      if (asg.launchTemplate) {
-        launchTemplate = Keys.getLaunchTemplateKey(asg.launchTemplate.launchTemplateName, account, region)
+      def launchTemplate = asg.launchTemplate
+      if (launchTemplate) {
+        launchTemplateData = Keys.getLaunchTemplateKey(launchTemplate.launchTemplateName, launchTemplate.version, account, region)
       } else {
         launchConfig = Keys.getLaunchConfigKey(asg.launchConfigurationName, account, region)
       }

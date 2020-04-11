@@ -168,8 +168,8 @@ class Keys implements KeyParser {
     "${ID}:${Namespace.LAUNCH_CONFIGS}:${account}:${region}:${launchConfigName}"
   }
 
-  static String getLaunchTemplateKey(String launchTemplate, String account, String region) {
-    "${ID}:${Namespace.LAUNCH_TEMPLATES}:${account}:${region}:${launchTemplate}"
+  static String getLaunchTemplateKey(String launchTemplateName, String launchTemplateVersion, String account, String region) {
+    "${ID}:${Namespace.LAUNCH_TEMPLATES}:${account}:${region}:${launchTemplateName}:${launchTemplateVersion}"
   }
 
   static String getLoadBalancerKey(String loadBalancerName, String account, String region, String vpcId, String loadBalancerType) {

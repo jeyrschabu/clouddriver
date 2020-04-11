@@ -35,6 +35,7 @@ class AmazonServerGroup implements ServerGroup, Serializable {
   Set health
   Map<String, Object> image
   Map<String, Object> launchConfig
+  Map<String, Object> launchTemplateData
   Map<String, Object> asg
   List<Map> scalingPolicies
   List<Map> scheduledActions
@@ -111,7 +112,12 @@ class AmazonServerGroup implements ServerGroup, Serializable {
     if (launchConfig && launchConfig.containsKey("securityGroups")) {
       securityGroups = (Set<String>) launchConfig.securityGroups
     }
-    securityGroups
+
+    if (launchTemplateData && launchTemplateData.containsKey("securityGroups")) {
+      securityGroups = (Set<String>) launchTemplateData.securityGroups
+    }
+
+    return securityGroups
   }
 
   @Override
