@@ -166,7 +166,7 @@ class AutoScalingWorker {
 
     LaunchTemplateSpecification launchTemplateSpecification = null
     String launchConfigName = null
-    if (setLaunchTemplate != null && setLaunchTemplate) {
+    if (setLaunchTemplate) {
       settings = DefaultLaunchConfigurationBuilder.setAppSecurityGroup(
         subnetType,
         application,

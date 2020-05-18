@@ -17,6 +17,7 @@
 package com.netflix.spinnaker.clouddriver.aws.deploy.handlers
 
 import com.amazonaws.services.autoscaling.model.DescribeAutoScalingGroupsRequest
+import com.amazonaws.services.autoscaling.model.LaunchConfiguration
 import com.amazonaws.services.ec2.model.DescribeSecurityGroupsRequest
 import com.amazonaws.services.ec2.model.LaunchTemplateVersion
 import com.google.common.annotations.VisibleForTesting
@@ -433,13 +434,13 @@ class BasicAmazonDeployHandler implements DeployHandler<BasicAmazonDeployDescrip
             new IllegalStateException("Launch template $sourceAsg.launchTemplate.version was requested but was not found for $sourceAsg")
           }
 
-        description.blockDevices = buildBlockDeviceMappings(description, launchTemplateVersion.launchTemplateData)
+        description.blockDevices = buildBlockDeviceMappings(description, new LaunchSetting(launchTemplateVersion: launchTemplateVersion))
       } else {
         def sourceLaunchConfiguration = sourceRegionScopedProvider.asgService.getLaunchConfiguration(
           sourceAsg.launchConfigurationName
         )
 
-        description.blockDevices = buildBlockDeviceMappings(description, sourceLaunchConfiguration)
+        description.blockDevices = buildBlockDeviceMappings(description, new LaunchSetting(launchConfiguration: sourceLaunchConfiguration))
       }
     }
 
@@ -486,8 +487,8 @@ class BasicAmazonDeployHandler implements DeployHandler<BasicAmazonDeployDescrip
 
   @VisibleForTesting
   @PackageScope
-  static List<AmazonBlockDevice> convertBlockDevices(List<Object> blockDeviceMappings) {
-    blockDeviceMappings.collect {
+  static List<AmazonBlockDevice> convertBlockDevices(LaunchSetting launchSetting) {
+    launchSetting.blockDeviceMappings.collect {
       def device = new AmazonBlockDevice(deviceName: it.deviceName, virtualName: it.virtualName)
       it.ebs?.with {
         device.iops = iops
@@ -563,7 +564,7 @@ class BasicAmazonDeployHandler implements DeployHandler<BasicAmazonDeployDescrip
   @PackageScope
   Collection<AmazonBlockDevice> buildBlockDeviceMappings(
     BasicAmazonDeployDescription description,
-    Object sourceLaunchSetting
+    LaunchSetting sourceLaunchSetting
   ) {
     if (description.blockDevices != null) {
       // block device mappings have been explicitly specified and should be used regardless of instance type
@@ -588,7 +589,7 @@ class BasicAmazonDeployHandler implements DeployHandler<BasicAmazonDeployDescrip
       }
     }
 
-    return convertBlockDevices(sourceLaunchSetting.blockDeviceMappings as List)
+    return convertBlockDevices(sourceLaunchSetting)
   }
 
   @VisibleForTesting
@@ -631,5 +632,26 @@ class BasicAmazonDeployHandler implements DeployHandler<BasicAmazonDeployDescrip
     }
 
     return description
+  }
+
+  static class LaunchSetting {
+    LaunchConfiguration launchConfiguration
+    LaunchTemplateVersion launchTemplateVersion
+
+    String getInstanceType() {
+      if (launchConfiguration != null) {
+        return launchConfiguration.instanceType
+      }
+
+      return launchTemplateVersion?.launchTemplateData?.instanceType
+    }
+
+    List getBlockDeviceMappings() {
+      if (launchConfiguration != null) {
+        return launchConfiguration.blockDeviceMappings
+      }
+
+      return launchTemplateVersion?.launchTemplateData?.blockDeviceMappings
+    }
   }
 }
